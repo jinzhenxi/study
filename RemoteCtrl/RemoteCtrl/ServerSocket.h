@@ -31,6 +31,21 @@ public:
 		return *this;
 	}
 
+	//打包数据
+	CPacket(WORD nCmd, const BYTE* pData, size_t nSize)
+	{
+		sHead = 0xFEFF;
+		nLength = nSize + 4;
+		sCmd = nCmd;
+		strData.resize(nSize);
+		memcpy((void*)strData.c_str(), pData, nSize);
+		for (size_t j = 0; j < strData.size(); j++)
+		{
+			sSum += (BYTE)strData[j] & 0xFF;
+		}
+
+	}
+
 	//解析包数据
 	CPacket(const BYTE* pData, size_t& nSize) {
 		size_t i = 0;
@@ -79,12 +94,34 @@ public:
 
 	}
 	~CPacket() {}
+
+	int Size()
+	{
+		return nLength + 6;
+	}
+	const char* Data()
+	{
+		strOut.resize(nLength+6);
+		BYTE* pData = (BYTE*)strOut.c_str();
+		*(WORD*)pData = sHead;
+		pData += 2;
+		*(DWORD*)pData = nLength;
+		pData += 4;
+		*(WORD*)pData = sCmd;
+		pData += 2;
+		memcpy(pData, strData.c_str(), strData.size());
+		pData += strData.size();
+		*(WORD*)pData = sSum;
+		return strOut.c_str();
+	}
+	
 public:
 	WORD sHead;            //包头         
 	DWORD nLength;         //包长度
 	WORD sCmd;             //控制命令
 	std::string strData;   //数据
 	WORD sSum;             //校验和
+	std::string strOut;    //整个包的数据
 };
 
 
@@ -164,6 +201,21 @@ public:
 		return send(m_client, pdata, psize, 0) > 0; // 如果send<=0 返回的就是失败值
 	}
 
+	bool Send(const CPacket& pack) {
+		if (m_client == -1) return false;
+		return send(m_client, (const char*)&pack, pack.nLength+6, 0 ) > 0;
+	}
+
+	bool GetFilePath(std::string& strPath)
+	{
+		//只有当命令是2时，才能取获取文件目录
+		if (m_packet.sCmd == 2)
+		{
+			strPath = m_packet.strData;
+			return true;
+		}
+		return false;
+	}
 
 private:
 	SOCKET m_socket;
