@@ -126,6 +126,53 @@ int MakeDirectoryInfo()
     return 0;
 }
 
+int RunFile()
+{
+    std::string strPath;
+    CServerSocket::getInstacne()->GetFilePath(strPath);
+    ShellExecuteA(NULL,NULL,strPath.c_str(),NULL,NULL,SW_SHOWNORMAL);//打开记事本,或者执行程序
+    CPacket pack(3, NULL, 0);
+    CServerSocket::getInstacne()->Send(pack);
+    return 0;
+}
+
+int DownloadFile()
+{
+    std::string strPath;
+    CServerSocket::getInstacne()->GetFilePath(strPath);
+    long long data = 0;
+    FILE* pFile = NULL;
+    errno_t err = fopen_s(&pFile,strPath.c_str(),"rb");
+    if (err != 0)
+    {
+        CPacket pack(4, (BYTE*) &data, 0);
+        CServerSocket::getInstacne()->Send(pack);
+        return -1;
+    }
+
+    if (pFile != NULL)
+    {
+        //设置文件指针为文件末尾
+        fseek(pFile,0, SEEK_END);
+        //获取文件指针位置到文件开头的距离, 其实就是文件大小了
+        data = _ftelli64(pFile);
+        CPacket head(4, (BYTE*)data, 8);
+        CServerSocket::getInstacne()->Send(head);
+        fseek(pFile, 0, SEEK_SET);
+        char buffer[1024] = "";
+        size_t rlen = 0;
+        do
+        {
+            rlen = fread(buffer, 1, 1024, pFile);
+            CPacket pack(4, (BYTE*)buffer, rlen);
+            CServerSocket::getInstacne()->Send(pack);
+        } while (rlen >= 1024);
+    }
+    CPacket pack(4, NULL, 0);
+    CServerSocket::getInstacne()->Send(pack);
+    fclose(pFile);
+}
+
 
 //调用main前是一个主线程，会按include顺序先进行初始和实例化，然后在调用main
 
@@ -172,11 +219,17 @@ int main()
             int nCmd = 1;
             switch (nCmd)
             {
-            case 1: 
+            case 1: //查看磁盘分区
                 MakeDriverInfo();
                 break;
-            case 2:
+            case 2://查看指定目录下的文件
                 MakeDirectoryInfo();
+                break;
+            case 3://打开文件
+                RunFile();
+                break;
+            case 4://下载文件
+                DownloadFile();
                 break;
             }
 
