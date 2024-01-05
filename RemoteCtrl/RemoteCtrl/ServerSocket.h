@@ -7,8 +7,8 @@
 
 
 
-
-
+#pragma pack(push)
+#pragma pack(1)
 class CPacket
 {
 public:
@@ -130,10 +130,22 @@ public:
 	WORD sSum;             //校验和
 	std::string strOut;    //整个包的数据
 };
+#pragma pack(pop)
 
+//鼠标事件结构体
+typedef struct MouseEvent
+{
+	MouseEvent() {
+		nAction = 0;
+		nButton = -1;   //设成-1的好处，避免后面写代码问题，误按某个键
+		ptxy.x = 0;
+		ptxy.y = 0;
+	}
+	WORD nAction;  //点击，移动，双击
+	WORD nButton;  //左键，右键，中键
+	POINT ptxy;    //鼠标位置
 
-
-
+} MOUSEEV, *PMOUSEEV;
 
 //因为像WSAData，WSAStartup(),WSACleanup()全过程只会调用一次，因此我们选择
 //创建一个类，当类被创建和被销毁时，都只会调用一次。
@@ -216,9 +228,19 @@ public:
 	bool GetFilePath(std::string& strPath)
 	{
 		//只有当命令是2时，才能取获取文件目录
-		if ((m_packet.sCmd == 2) || (m_packet.sCmd == 3))
+		if ((m_packet.sCmd >= 2) && (m_packet.sCmd <= 4))
 		{
 			strPath = m_packet.strData;
+			return true;
+		}
+		return false;
+	}
+
+	bool GetMouseEvent(MOUSEEV& mouse)
+	{
+		if (m_packet.sCmd == 5)
+		{
+			memcpy(&mouse, m_packet.strData.c_str(), sizeof(mouse));
 			return true;
 		}
 		return false;

@@ -5,7 +5,8 @@
 #include "framework.h"
 #include "RemoteCtrl.h"
 #include "ServerSocket.h"
-#include <direct.h>
+#include <direct.h>          //跟磁盘有关
+#include <atlimage.h>        //跟截图有关
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -173,6 +174,134 @@ int DownloadFile()
     fclose(pFile);
 }
 
+int MouseEvent()
+{
+    MOUSEEV mouse;
+    if (CServerSocket::getInstacne()->GetMouseEvent(mouse))
+    {
+        DWORD nflag = 0;
+        switch (mouse.nButton)
+        {
+        case 0://左键
+            nflag = 1;
+            break;
+        case 1://右键
+            nflag = 2;       //二进制代表第二个比特位
+            break;
+        case 2://中键
+            nflag = 4;       //二进制代表第三个比特位
+            break;
+        case 4://没有按键
+            nflag = 8;       //二进制代表第四个比特位
+            break;
+        }
+
+        if (nflag != 8)
+        {
+            SetCursorPos(0, 0);  //设置当前鼠标位置
+        }
+
+        switch (mouse.nAction)
+        {
+        case 0://单击
+            nflag |= 0x10;
+        case 1://双击
+            nflag |= 0x20;
+            break;
+        case 2://按下
+            nflag |= 0x40;
+            break;
+        case 3://放开
+            nflag |= 0x80;
+            break;
+        default:
+            break;
+        }
+
+        switch (nflag)
+        {
+        case 0x21:  //左键双击
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, GetMessageExtraInfo());
+        case 0x11:  //左键单击
+            mouse_event(MOUSEEVENTF_LEFTDOWN,0,0,0, GetMessageExtraInfo());
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, GetMessageExtraInfo());
+            break;
+        case 0x41:  //左键按下
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, GetMessageExtraInfo());
+            break;
+        case 0x81:  //左键松开
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, GetMessageExtraInfo());
+            break;
+        case 0x22:  //右键双击  
+            mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, GetMessageExtraInfo());
+        case 0x12:  //右键单击
+            mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, GetMessageExtraInfo());
+            mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, GetMessageExtraInfo());
+            break;
+        case 0x42:  //右键按下
+            mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, GetMessageExtraInfo());
+            break;
+        case 0x82:  //右键松开
+            mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, GetMessageExtraInfo());
+            break;
+        case 0x24:  //中键双击
+            mouse_event(MOUSEEVENTF_MIDDLEDOWN, 0, 0, 0, GetMessageExtraInfo());
+        case 0x14:  //中键单击
+            mouse_event(MOUSEEVENTF_MIDDLEDOWN, 0, 0, 0, GetMessageExtraInfo());
+            mouse_event(MOUSEEVENTF_MIDDLEUP, 0, 0, 0, GetMessageExtraInfo());
+            break;
+        case 0x44:  //中键按下
+            mouse_event(MOUSEEVENTF_MIDDLEDOWN, 0, 0, 0, GetMessageExtraInfo());
+            break;
+        case 0x84:  //中键松开
+            mouse_event(MOUSEEVENTF_MIDDLEUP, 0, 0, 0, GetMessageExtraInfo());
+            break;
+        }
+        CPacket pack(5,NULL,0);
+        CServerSocket::getInstacne()->Send(pack);
+
+    }
+    else
+    {
+        OutputDebugString(_T("获取鼠标操作参数失败！"));
+        return -1;
+    }
+
+    return 0;
+}
+
+
+int SendScreen()
+{
+    CImage screen;
+    HDC hscreen = ::GetDC(NULL);         //设备上下文
+    int nBitPerPixel = GetDeviceCaps(hscreen, BITSPIXEL);   //位宽
+    int nWidth = GetDeviceCaps(hscreen, HORZRES);           //屏幕宽 
+    int nHeight = GetDeviceCaps(hscreen, VERTRES);          //屏幕高
+    screen.Create(nWidth, nHeight, nBitPerPixel);  
+    BitBlt(screen.GetDC(),0,0,1920,1020, hscreen, 0, 0, SRCCOPY); //1020是跳过任务栏，该函数是位块传输
+    ReleaseDC(NULL,hscreen);
+    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, 0); //内存是可以调整大小的
+    if (hMem == NULL) return -1;
+    IStream* pStream = NULL;          //内存流,可以往里写东西的缓冲区
+    HRESULT ret = CreateStreamOnHGlobal(hMem, TRUE, &pStream);
+    if (ret == S_OK)
+    {
+        screen.Save(pStream,Gdiplus::ImageFormatPNG);  //图片以png格式保存到内存流中
+        LARGE_INTEGER bg = { 0 };
+        pStream->Seek(bg, STREAM_SEEK_SET, NULL);      //把指针设到开头去
+        PBYTE pData = (PBYTE)GlobalLock(hMem);
+        SIZE_T nSize = GlobalSize(hMem);
+        CPacket pack(6, pData, nSize);
+        CServerSocket::getInstacne()->Send(pack);
+        GlobalUnlock(hMem);
+    }
+    pStream->Release();           //写IStream的时候，顺便把这个写了，免得后面忘记了
+    GlobalFree(hMem);
+    screen.ReleaseDC();
+    return 0;
+}
+
 
 //调用main前是一个主线程，会按include顺序先进行初始和实例化，然后在调用main
 
@@ -230,6 +359,12 @@ int main()
                 break;
             case 4://下载文件
                 DownloadFile();
+                break;
+            case 5://鼠标操作
+                MouseEvent();
+                break;
+            case 6://发送屏幕截图
+                SendScreen();
                 break;
             }
 
