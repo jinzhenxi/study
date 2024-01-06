@@ -172,6 +172,7 @@ int DownloadFile()
     CPacket pack(4, NULL, 0);
     CServerSocket::getInstacne()->Send(pack);
     fclose(pFile);
+    return 0;
 }
 
 int MouseEvent()
@@ -303,6 +304,85 @@ int SendScreen()
 }
 
 
+
+//锁机要求：弹出对话框，这个对话框不能被退出掉
+#include "LockDialog.h"
+CLockDialog dlg;
+unsigned threadid = 0;
+
+//因为有一个无限循环，除非按下按键退出。如果不用线程来的话，会影响主线程的运行
+unsigned _stdcall threadLockDlg(void* arg)
+{
+    TRACE("%s(%d):%d",__FUNCTION__, __LINE__, GetCurrentThreadId());
+    dlg.Create(IDD_DIALOG_INFO, NULL);
+    dlg.ShowWindow(SW_SHOW);
+    //遮蔽后台窗口
+    CRect rect;  //MFC中窗口的范围
+    rect.left = 0;
+    rect.top = 0;
+    rect.right = GetSystemMetrics(SM_CXFULLSCREEN);
+    rect.bottom = GetSystemMetrics(SM_CYFULLSCREEN);
+    rect.bottom *= 1.03; //因为这个bottom不是全部的，所以我们稍微放大一点
+    dlg.MoveWindow(rect);   //设置窗口范围
+    //窗口置顶
+    //dlg.SetWindowPos(&dlg.wndTopMost, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
+    //限制鼠标的功能
+    ShowCursor(false);  //不显示鼠标
+    //隐藏任务栏
+    ::ShowWindow(::FindWindow(_T("Shell_TrayWnd"),NULL), SW_SHOW);
+
+    //限制鼠标移动
+    rect.left = 0;
+    rect.right = 1;
+    rect.top = 0;
+    rect.bottom = 1;
+    ClipCursor(rect);
+
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0))
+    {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+        if (msg.message == WM_KEYDOWN)
+        {
+            //TRACE函数可以用来跟踪实例
+            TRACE("msg:%08X wparam:%08X lparam:%08X\r\n", msg.message, msg.wParam, msg.lParam);
+            //if (msg.wParam == 0x1B) //按下ESC退出
+            if(msg.wParam == 0x41) //按下a键退出
+            {
+                break;
+            }
+        }
+    }
+
+    dlg.DestroyWindow();
+    ShowCursor(true);
+    ::ShowWindow(::FindWindow(_T("Shell_TrayWnd"), NULL), SW_SHOW);
+    _endthreadex(0);   //线程启动了之后要记得退出
+    return 0;  //?????????
+}
+
+int LockMachine()
+{
+    if ((dlg.m_hWnd != NULL) || (dlg.m_hWnd != INVALID_HANDLE_VALUE))
+    {
+        _beginthreadex(NULL, 0, threadLockDlg, NULL, 0, &threadid);
+        TRACE("threadid=%d\r\n", threadid);
+    }
+    CPacket pack(7, NULL, 0);
+    CServerSocket::getInstacne()->Send(pack);
+    return 0;
+}
+
+int UnlockMachine()
+{
+    PostThreadMessage(threadid, WM_KEYDOWN, 0x41, 0);   //往指定的线程里发送信号
+    CPacket pack(8, NULL, 0);
+    CServerSocket::getInstacne()->Send(pack);
+    return 0;
+}
+
+
 //调用main前是一个主线程，会按include顺序先进行初始和实例化，然后在调用main
 
 int main()
@@ -345,7 +425,7 @@ int main()
             //    int ret = pserver->DealCommand();
             //    //TODO
             //}
-            int nCmd = 1;
+            int nCmd = 7;
             switch (nCmd)
             {
             case 1: //查看磁盘分区
@@ -366,8 +446,18 @@ int main()
             case 6://发送屏幕截图
                 SendScreen();
                 break;
+            case 7://锁机
+                LockMachine();
+                break;
+            case 8://解锁
+                UnlockMachine();
+                break;
             }
-
+            Sleep(5000);
+            UnlockMachine();
+            while (dlg.m_hWnd != NULL) {
+                Sleep(10);
+            }
         }
     }
     else
