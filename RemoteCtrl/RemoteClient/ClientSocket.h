@@ -1,10 +1,8 @@
 #pragma once
 #include "pch.h"
 #include "framework.h"
-
-
-
-
+#include <string>
+#include <vector>
 
 
 #pragma pack(push)
@@ -110,7 +108,7 @@ public:
 	}
 	const char* Data()
 	{
-		strOut.resize(nLength+6);
+		strOut.resize(nLength + 6);
 		BYTE* pData = (BYTE*)strOut.c_str();
 		*(WORD*)pData = sHead;
 		pData += 2;
@@ -123,7 +121,7 @@ public:
 		*(WORD*)pData = sSum;
 		return strOut.c_str();
 	}
-	
+
 public:
 	WORD sHead;            //包头         
 	DWORD nLength;         //包长度
@@ -147,61 +145,65 @@ typedef struct MouseEvent
 	WORD nButton;  //左键，右键，中键
 	POINT ptxy;    //鼠标位置
 
-} MOUSEEV, *PMOUSEEV;
+} MOUSEEV, * PMOUSEEV;
 
-//因为像WSAData，WSAStartup(),WSACleanup()全过程只会调用一次，因此我们选择
-//创建一个类，当类被创建和被销毁时，都只会调用一次。
-class CServerSocket
+
+std::string GetErrorInfo(int wsaErrCode);
+
+class CClientSocket
 {
 public:
 	//静态函数，可以不用声明对象，就可以通过该函数直接调用，一定要放到public
 	//调用静态对象时，不能使用this，this是针对对象的，没有对象当然不用this了
-	static CServerSocket* getInstacne() {
+	static CClientSocket* getInstacne() {
 		if (m_instance == NULL)
 		{
-			m_instance = new CServerSocket();
+			m_instance = new CClientSocket();
 		}
 		return m_instance;
 	}
 
-	bool InitSocket()
+	bool InitSocket(std::string& strIPAddress)
 	{
+		if (m_socket != INVALID_SOCKET) CloseSocket();
+		m_socket = socket(PF_INET, SOCK_STREAM, 0);
 		if (m_socket == -1) return false;
 		sockaddr_in serv_addr;
 		memset(&serv_addr, 0, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;
-		serv_addr.sin_addr.s_addr = INADDR_ANY;
+		serv_addr.sin_addr.s_addr = inet_addr(strIPAddress.c_str());
 		serv_addr.sin_port = htons(9527);
 
-		bind(m_socket, (sockaddr*)&serv_addr, sizeof(serv_addr));
-
-		if (listen(m_socket, 1) == -1)
+		if (serv_addr.sin_addr.s_addr == INVALID_SOCKET)
+		{
+			AfxMessageBox("连接的IP无效");
 			return false;
+		}
+
+		int ret = connect(m_socket, (sockaddr*)&serv_addr, sizeof(serv_addr));
+		if (ret == -1)
+		{
+			AfxMessageBox("连接失败");
+			TRACE("连接失败：%d %s\r\n", WSAGetLastError(), GetErrorInfo(WSAGetLastError()).c_str());//给开发人员留下错误线索
+			return false;
+		}
 
 		return true;
 	}
 
-	bool AcceptClient()
-	{
-		sockaddr_in client_addr;
-		int client_size = sizeof(client_addr);
-		m_client = accept(m_socket, (sockaddr*)&client_addr, &client_size);
-		if (m_client == -1) return false;
-		TRACE("m_client = %d\r\n", m_client);
-		return true;
-	}
+
 
 #define BUFFER_SIZE 4096
 	int DealCommand()
 	{
-		if (m_client == -1) return -1;
+		if (m_socket == -1) return -1;
 		//TODO:处理命令
-		char* buffer = new char[BUFFER_SIZE];
+		char* buffer = m_buffer.data();
 		memset(buffer, 0, BUFFER_SIZE);
 		size_t index = 0;
 		while (true)
 		{
-			size_t len = recv(m_client, buffer + index, BUFFER_SIZE - index, 0);
+			size_t len = recv(m_socket, buffer + index, BUFFER_SIZE - index, 0);
 			if (len <= 0)
 				return -1;
 			index += len;
@@ -219,13 +221,13 @@ public:
 	}
 
 	bool Send(const char* pdata, int psize) {
-		if (m_client == -1) return false;
-		return send(m_client, pdata, psize, 0) > 0; // 如果send<=0 返回的就是失败值
+		if (m_socket == -1) return false;
+		return send(m_socket, pdata, psize, 0) > 0; // 如果send<=0 返回的就是失败值
 	}
 
 	bool Send(CPacket& pack) {
-		if (m_client == -1) return false;
-		return send(m_client, pack.Data(), pack.nLength + 6, 0) > 0;
+		if (m_socket == -1) return false;
+		return send(m_socket, pack.Data(), pack.nLength + 6, 0) > 0;
 	}
 
 	bool GetFilePath(std::string& strPath)
@@ -254,39 +256,45 @@ public:
 		return m_packet;
 	}
 
-	void CloseClient()
+	void CloseSocket()
 	{
-		closesocket(m_client);
-		m_client = INVALID_SOCKET;
+		closesocket(m_socket);
+		m_socket = INVALID_SOCKET;
 	}
 
 private:
+	//用vector方便后面使用m_buffer.data()取地址
+	std::vector<char> m_buffer;
 	SOCKET m_socket;
-	SOCKET m_client;
 	CPacket m_packet;
 
-	CServerSocket& operator=(const CServerSocket& one) {
+	CClientSocket& operator=(const CClientSocket& one) {
 
 	}
 
 
-	CServerSocket(const CServerSocket& ss)
+	CClientSocket(const CClientSocket& ss)
 	{
 		m_socket = ss.m_socket;
-		m_client = ss.m_client;
+		
 	}
 
-	CServerSocket() {
-		m_client = INVALID_SOCKET;
+	CClientSocket() {
+		
 		if (!InitSocketEnv())
 		{
 			MessageBox(NULL, _T("无法初始化套接字环境"), _T("初始化错误"), MB_OK | MB_ICONERROR);
 			exit(0);
 		}
-		m_socket = socket(PF_INET, SOCK_STREAM, 0);
+		m_buffer.resize(BUFFER_SIZE);
+
+		//客户端不能像服务端一样，在这样创建socket
+		//m_socket在结束的时候被服务器端close掉了，导致后面m_socket无法被创建，所以我们不能
+		//在这里创建socket
+		//m_socket = socket(PF_INET, SOCK_STREAM, 0);
 	}
 
-	~CServerSocket() {
+	~CClientSocket() {
 		WSACleanup();
 	}
 
@@ -298,7 +306,7 @@ private:
 	}
 
 	//静态对象
-	static CServerSocket* m_instance;
+	static CClientSocket* m_instance;
 
 	static void releaseInstance()
 	{
@@ -306,7 +314,7 @@ private:
 		{
 			return;
 		}
-		CServerSocket* tmp = m_instance;
+		CClientSocket* tmp = m_instance;
 		m_instance = NULL;
 		delete tmp;
 	}
@@ -316,11 +324,11 @@ private:
 	public:
 		C_Helper()
 		{
-			CServerSocket::getInstacne();
+			CClientSocket::getInstacne();
 		}
 		~C_Helper()
 		{
-			CServerSocket::releaseInstance();
+			CClientSocket::releaseInstance();
 		}
 	};
 
@@ -328,6 +336,4 @@ private:
 	static C_Helper m_helper;
 };
 
-extern CServerSocket server;
-
-
+extern CClientSocket client;

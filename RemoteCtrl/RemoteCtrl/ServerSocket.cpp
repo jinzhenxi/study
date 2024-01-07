@@ -6,3 +6,5 @@ CServerSocket* CServerSocket::m_instance = NULL;
 
 //调用静态变量类的构造函数
 CServerSocket::C_Helper CServerSocket::m_helper;
+
+CServerSocket* pserver = CServerSocket::getInstacne();
