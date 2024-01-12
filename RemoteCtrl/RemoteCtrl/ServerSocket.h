@@ -1,7 +1,7 @@
 #pragma once
 #include "pch.h"
 #include "framework.h"
-
+#include <vector>
 
 
 
@@ -149,6 +149,21 @@ typedef struct MouseEvent
 
 } MOUSEEV, *PMOUSEEV;
 
+//定义一个结构体来存文件或者目录的信息
+typedef struct file_Info {
+	file_Info()
+	{
+		IsInvalid = 0;
+		IsDirectory = -1;
+		HasNext = false;
+		memset(szFileName, 0, sizeof(szFileName));
+	}
+	bool IsInvalid;
+	bool IsDirectory;
+	bool HasNext;
+	char szFileName[256];
+}FILEINFO, * PFILEINFO;
+
 //因为像WSAData，WSAStartup(),WSACleanup()全过程只会调用一次，因此我们选择
 //创建一个类，当类被创建和被销毁时，都只会调用一次。
 class CServerSocket
@@ -192,11 +207,12 @@ public:
 	}
 
 #define BUFFER_SIZE 4096
+	//记得改一下
 	int DealCommand()
 	{
 		if (m_client == -1) return -1;
 		//TODO:处理命令
-		char* buffer = new char[BUFFER_SIZE];
+		char* buffer = m_buffer.data(); 
 		memset(buffer, 0, BUFFER_SIZE);
 		size_t index = 0;
 		while (true)
@@ -265,6 +281,9 @@ private:
 	SOCKET m_client;
 	CPacket m_packet;
 
+	//用vector方便后面使用m_buffer.data()取地址
+	std::vector<char> m_buffer;
+
 	CServerSocket& operator=(const CServerSocket& one) {
 
 	}
@@ -283,6 +302,7 @@ private:
 			MessageBox(NULL, _T("无法初始化套接字环境"), _T("初始化错误"), MB_OK | MB_ICONERROR);
 			exit(0);
 		}
+		m_buffer.resize(BUFFER_SIZE);
 		m_socket = socket(PF_INET, SOCK_STREAM, 0);
 	}
 
@@ -329,5 +349,4 @@ private:
 };
 
 extern CServerSocket server;
-
 

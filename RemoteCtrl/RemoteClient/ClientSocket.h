@@ -147,6 +147,20 @@ typedef struct MouseEvent
 
 } MOUSEEV, * PMOUSEEV;
 
+//定义一个结构体来存文件或者目录的信息
+typedef struct file_Info {
+	file_Info()
+	{
+		IsInvalid = 0;
+		IsDirectory = -1;
+		HasNext = false;
+		memset(szFileName, 0, sizeof(szFileName));
+	}
+	bool IsInvalid;
+	bool IsDirectory;
+	bool HasNext;
+	char szFileName[256];
+}FILEINFO, * PFILEINFO;
 
 std::string GetErrorInfo(int wsaErrCode);
 
@@ -163,16 +177,48 @@ public:
 		return m_instance;
 	}
 
-	bool InitSocket(std::string& strIPAddress)
+	//添加控件前的InitSocket
+	//bool InitSocket(std::string& strIPAddress)
+	//{
+	//	if (m_socket != INVALID_SOCKET) CloseSocket();
+	//	m_socket = socket(PF_INET, SOCK_STREAM, 0);
+	//	if (m_socket == -1) return false;
+	//	sockaddr_in serv_addr;
+	//	memset(&serv_addr, 0, sizeof(serv_addr));
+	//	serv_addr.sin_family = AF_INET;
+	//	serv_addr.sin_addr.s_addr = inet_addr(strIPAddress.c_str());
+	//	serv_addr.sin_port = htons(9527);
+
+	//	if (serv_addr.sin_addr.s_addr == INVALID_SOCKET)
+	//	{
+	//		AfxMessageBox("连接的IP无效");
+	//		return false;
+	//	}
+
+	//	int ret = connect(m_socket, (sockaddr*)&serv_addr, sizeof(serv_addr));
+	//	if (ret == -1)
+	//	{
+	//		AfxMessageBox("连接失败");
+	//		TRACE("连接失败：%d %s\r\n", WSAGetLastError(), GetErrorInfo(WSAGetLastError()).c_str());//给开发人员留下错误线索
+	//		return false;
+	//	}
+
+	//	return true;
+	//}
+
+
+
+	bool InitSocket(int nIP, int nPort)
 	{
+		//如果m_socket不为空，先关掉，再创建一个新的
 		if (m_socket != INVALID_SOCKET) CloseSocket();
 		m_socket = socket(PF_INET, SOCK_STREAM, 0);
 		if (m_socket == -1) return false;
 		sockaddr_in serv_addr;
 		memset(&serv_addr, 0, sizeof(serv_addr));
 		serv_addr.sin_family = AF_INET;
-		serv_addr.sin_addr.s_addr = inet_addr(strIPAddress.c_str());
-		serv_addr.sin_port = htons(9527);
+		serv_addr.sin_addr.s_addr = htonl(nIP);  //注意一下，这里如果没有htonl会导致大小端续的问题
+		serv_addr.sin_port = htons(nPort);
 
 		if (serv_addr.sin_addr.s_addr == INVALID_SOCKET)
 		{
@@ -192,8 +238,8 @@ public:
 	}
 
 
-
 #define BUFFER_SIZE 4096
+	//处理服务器发给客户端的指令数据,就是解析数据包，返回值是服务器的指令代码
 	int DealCommand()
 	{
 		if (m_socket == -1) return -1;
@@ -214,7 +260,7 @@ public:
 			{
 				memmove(buffer, buffer + len, BUFFER_SIZE - len);
 				index -= len;
-				return 0;
+				return m_packet.sCmd;
 			}
 		}
 		return -1;

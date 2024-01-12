@@ -49,34 +49,27 @@ int MakeDriverInfo()
     {
         if (_chdrive(i) == 0)
         {
+            if (result.size() > 0)
+                result += ",";
             result += 'A' + i - 1;
         }
     }
+    //结尾补上一个，不然的话最后一个硬盘无法识别出来
+    if (result.size() > 0)
+        result += ",";
 
     CPacket pack(1, (BYTE*)result.c_str(), result.size());
     // Dump((BYTE*)&pack, pack.nLength + 6);这样是错的，因为取的是pack的地址，而不是pack的内容
     Dump((BYTE*)pack.Data(), pack.nLength + 6);
     //CServerSocket::getInstacne()->Send(CPacket(1,(BYTE*)result.c_str(), result.size()));
+    CServerSocket::getInstacne()->Send(pack);
     return 0;
 }
 
 
 #include<io.h>
 #include<list>
-//定义一个结构体来存文件或者目录的信息
-typedef struct file_Info {
-    file_Info()
-    {
-        IsInvalid = 0;
-        IsDirectory = -1;
-        HasNext = false;
-        memset(szFileName,0,sizeof(szFileName));
-    }
-    bool IsInvalid;
-    bool IsDirectory;
-    bool HasNext;
-    char szFileName[256];
-}FILEINFO,*PFILEINFO;
+
 
 //获取指定目录或者文件夹
 int MakeDirectoryInfo()
@@ -91,10 +84,7 @@ int MakeDirectoryInfo()
     if (_chdir(strPath.c_str()) != 0)
     {
         FILEINFO finfo;
-        finfo.IsInvalid = true;
-        finfo.IsDirectory = true;
-        finfo.HasNext = false;
-        memcpy(finfo.szFileName,strPath.c_str(), strPath.size());
+        finfo.IsInvalid = false;
         //lisFileInfos.emplace_back(finfo);
         CPacket pack(2, (BYTE*)&finfo, sizeof(finfo));
         CServerSocket::getInstacne()->Send(pack);
@@ -103,21 +93,38 @@ int MakeDirectoryInfo()
     }
     //_finddata_t结构体用来存储文件信息
     _finddata_t fdata;
-    int hfind = 0;
+    //int hfind = 0;
+    uintptr_t hfind = 0;   //64位用uintptr_t,而不是int
     if ((hfind = _findfirst("*", &fdata)) == -1)
     {
+        FILEINFO finfo;
+        finfo.IsInvalid = false;
+        //lisFileInfos.emplace_back(finfo);
+        CPacket pack(2, (BYTE*)&finfo, sizeof(finfo));
+        CServerSocket::getInstacne()->Send(pack);
         OutputDebugString(_T("没有找到任何文件!"));
         return -3;
     }
-    do
+    else
     {
-        FILEINFO finfo;
-        finfo.IsDirectory = (fdata.attrib & _A_SUBDIR) != 0;
-        memcpy(finfo.szFileName, fdata.name, strlen(fdata.name));
-        //lisFileInfos.emplace_back(finfo);
-        CPacket pack(2,(BYTE*)&finfo, sizeof(finfo));
-        CServerSocket::getInstacne()->Send(pack);
-    } while (_findnext(hfind, &fdata));
+        std::string inter;
+        do
+        {
+            FILEINFO finfo;
+            finfo.IsInvalid = true;
+            finfo.IsDirectory = (fdata.attrib & _A_SUBDIR) != 0;
+            finfo.HasNext = true;
+            inter = fdata.name;
+            memcpy(finfo.szFileName, fdata.name, strlen(fdata.name));
+            //lisFileInfos.emplace_back(finfo);
+            CPacket pack(2, (BYTE*)&finfo, sizeof(finfo));
+            CServerSocket::getInstacne()->Send(pack);
+            //疑惑点：为什么加了这个TRACE之后，才可以把数据都发送过去？
+            //TRACE("send file name:%s\r\n",inter);
+            //也就是说让数据发的慢一点
+            Sleep(10);
+        } while (!_findnext(hfind, &fdata));
+    }
 
     FILEINFO finfo;
     finfo.HasNext = false;
@@ -322,7 +329,7 @@ unsigned _stdcall threadLockDlg(void* arg)
     rect.top = 0;
     rect.right = GetSystemMetrics(SM_CXFULLSCREEN);
     rect.bottom = GetSystemMetrics(SM_CYFULLSCREEN);
-    rect.bottom *= 1.03; //因为这个bottom不是全部的，所以我们稍微放大一点
+    rect.bottom = LONG(rect.bottom * 1.03); //因为这个bottom不是全部的，所以我们稍微放大一点
     dlg.MoveWindow(rect);   //设置窗口范围
     //窗口置顶
     //dlg.SetWindowPos(&dlg.wndTopMost, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
